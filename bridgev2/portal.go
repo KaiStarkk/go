@@ -44,9 +44,10 @@ type portalMatrixEvent struct {
 }
 
 type portalRemoteEvent struct {
-	evt     RemoteEvent
-	source  *UserLogin
-	evtType RemoteEventType
+	evt             RemoteEvent
+	source          *UserLogin
+	evtType         RemoteEventType
+	allowUserRejoin bool
 }
 
 type portalCreateEvent struct {
@@ -559,6 +560,7 @@ func (portal *Portal) getEventCtxWithLog(rawEvt any, idx int) context.Context {
 		}
 		ctx := portal.backgroundCtx
 		ctx = context.WithValue(ctx, contextKeyRemoteEvent, evt.evt)
+		ctx = contextWithRemoteEventRejoin(ctx, evt.allowUserRejoin)
 		ctx = logWith.Logger().WithContext(ctx)
 		if ctxMut, ok := evt.evt.(RemoteEventWithContextMutation); ok {
 			ctx = ctxMut.MutateContext(ctx)
@@ -4287,8 +4289,9 @@ func (portal *Portal) handleRemoteChatDelete(ctx context.Context, source *UserLo
 					child:                        child.PortalKey,
 					done:                         wg.Done,
 				},
-				source:  source,
-				evtType: RemoteEventChatDelete,
+				source:          source,
+				evtType:         RemoteEventChatDelete,
+				allowUserRejoin: remoteEventRejoinAllowed(ctx),
 			})
 		}
 		wg.Wait()
@@ -4342,7 +4345,7 @@ func (portal *Portal) ProcessChatInfoChange(ctx context.Context, sender EventSen
 	if change.ChatInfo != nil {
 		portal.UpdateInfo(ctx, change.ChatInfo, source, intent, ts)
 	}
-	if change.MemberChanges != nil {
+	if change.MemberChanges != nil && remoteEventRejoinAllowed(ctx) {
 		err := portal.syncParticipants(ctx, change.MemberChanges, source, intent, ts)
 		if err != nil {
 			zerolog.Ctx(ctx).Err(err).Msg("Failed to sync room members")
@@ -5403,7 +5406,7 @@ func (portal *Portal) UpdateInfo(ctx context.Context, info *ChatInfo, source *Us
 		changed = true
 		portal.UserBlocked = *info.UserBlocked
 	}
-	if info.Members != nil && portal.MXID != "" && source != nil {
+	if info.Members != nil && portal.MXID != "" && source != nil && remoteEventRejoinAllowed(ctx) {
 		err := portal.syncParticipants(ctx, info.Members, source, nil, time.Time{})
 		if err != nil {
 			zerolog.Ctx(ctx).Err(err).Msg("Failed to sync room members")
