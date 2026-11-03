@@ -2010,17 +2010,7 @@ func (portal *Portal) handleMatrixMembership(
 			Str("prev_membership", string(prevContent.Membership)).
 			Str("target_user_id", evt.GetStateKey())
 	})
-	api, ok := sender.Client.(MembershipHandlingNetworkAPI)
-	if !ok {
-		return EventHandlingResultIgnored.WithMSSError(ErrMembershipNotSupported)
-	}
 	targetMXID := id.UserID(*evt.StateKey)
-	target, err := portal.getTargetUser(ctx, targetMXID)
-	if err != nil {
-		log.Err(err).Msg("Failed to get member event target")
-		return EventHandlingResultFailed.WithMSSError(err)
-	}
-
 	membershipChangeType := MembershipChangeType{
 		From:   prevContent.Membership,
 		To:     content.Membership,
@@ -2032,6 +2022,15 @@ func (portal *Portal) handleMatrixMembership(
 			log.Debug().Str("prev_membership", string(membershipChangeType.From)).Msg("Dropping leave event")
 			return EventHandlingResultIgnored
 		}
+	}
+	api, ok := sender.Client.(MembershipHandlingNetworkAPI)
+	if !ok {
+		return EventHandlingResultIgnored.WithMSSError(ErrMembershipNotSupported)
+	}
+	target, err := portal.getTargetUser(ctx, targetMXID)
+	if err != nil {
+		log.Err(err).Msg("Failed to get member event target")
+		return EventHandlingResultFailed.WithMSSError(err)
 	}
 	targetGhost, _ := target.(*Ghost)
 	membershipChange := &MatrixMembershipChange{
@@ -3075,6 +3074,9 @@ func (portal *Portal) handleRemoteMessage(ctx context.Context, source *UserLogin
 			portal.sendRemoteErrorNotice(ctx, intent, err, ts, "message")
 			return EventHandlingResultFailed.WithError(err)
 		}
+	}
+	if len(existing) == 0 && !evt.GetSender().IsFromMe {
+		source.MarkInPortal(ctx, portal)
 	}
 	_, res = portal.sendConvertedMessage(ctx, evt.GetID(), intent, evt.GetSender().Sender, converted, ts, getStreamOrder(evt), nil)
 	if portal.currentlyTypingGhosts.Pop(intent.GetMXID()) {

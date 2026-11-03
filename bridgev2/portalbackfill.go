@@ -18,6 +18,7 @@ import (
 	"go.mau.fi/util/variationselector"
 
 	"maunium.net/go/mautrix"
+	"maunium.net/go/mautrix/bridgev2/bridgeconfig"
 	"maunium.net/go/mautrix/bridgev2/database"
 	"maunium.net/go/mautrix/bridgev2/networkid"
 	"maunium.net/go/mautrix/event"
@@ -84,6 +85,11 @@ func (portal *Portal) doForwardBackfill(ctx context.Context, source *UserLogin, 
 			resp.CompleteCallback()
 		}
 		return
+	}
+	// Catch-up messages are new to Matrix however they got here, so they rejoin like live ones.
+	if portal.Bridge.Config.RejoinOnEvents.Contains(bridgeconfig.RejoinEventMessage) &&
+		slices.ContainsFunc(resp.Messages, func(msg *BackfillMessage) bool { return !msg.Sender.IsFromMe }) {
+		source.MarkInPortal(contextWithRemoteEventRejoin(ctx, true), portal)
 	}
 	err = portal.sendBackfill(ctx, source, resp.Messages, true, resp.MarkRead, false, resp.CompleteCallback)
 	if err != nil {
