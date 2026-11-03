@@ -88,8 +88,15 @@ func (portal *Portal) doForwardBackfill(ctx context.Context, source *UserLogin, 
 		return
 	}
 	// Catch-up messages are new to Matrix however they got here, so they rejoin like live ones.
+	// Cutoff only compares timestamps within this portal, so a message bridged elsewhere can still be here.
 	if portal.Bridge.Config.RejoinOnEvents.Contains(bridgeconfig.RejoinEventMessage) &&
-		slices.ContainsFunc(resp.Messages, func(msg *BackfillMessage) bool { return !msg.Sender.IsFromMe }) {
+		slices.ContainsFunc(resp.Messages, func(msg *BackfillMessage) bool {
+			if msg.Sender.IsFromMe {
+				return false
+			}
+			existing, err := portal.Bridge.DB.Message.GetFirstPartByID(ctx, portal.Receiver, msg.ID)
+			return err == nil && existing == nil
+		}) {
 		source.MarkInPortal(contextWithRemoteEventRejoin(ctx, true), portal)
 	}
 	err = portal.sendBackfill(ctx, source, resp.Messages, true, resp.MarkRead, false, resp.CompleteCallback)
