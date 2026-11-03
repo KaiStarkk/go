@@ -270,7 +270,8 @@ func (br *Bridge) QueueRemoteEvent(login *UserLogin, evt RemoteEvent) EventHandl
 		return EventHandlingResultIgnored
 	}
 	// TODO put this in a better place, and maybe cache to avoid constant db queries
-	if rejoinOnEvent {
+	// Messages rejoin from handleRemoteMessage, which knows whether they are new.
+	if rejoinOnEvent && evtType != RemoteEventMessage && evtType != RemoteEventMessageUpsert {
 		login.MarkInPortal(ctx, portal)
 	}
 	return portal.queueEvent(ctx, &portalRemoteEvent{
