@@ -80,6 +80,16 @@ func (portal *Portal) doForwardBackfill(ctx context.Context, source *UserLogin, 
 		Msg("Fetched messages for forward backfill, deduplicating before sending")
 	// TODO mark backfill queue task as done if last message is nil (-> room was empty) and HasMore is false?
 	resp.Messages = portal.cutoffMessages(ctx, resp.Messages, resp.AggressiveDeduplication, true, lastMessage)
+	// Cutoff only compares timestamps within this portal, and a network can move a message between
+	// chats. Its ID is unique across portals, so sending it again here could never be saved.
+	resp.Messages = slices.DeleteFunc(resp.Messages, func(msg *BackfillMessage) bool {
+		existing, err := portal.Bridge.DB.Message.GetFirstPartByID(ctx, portal.Receiver, msg.ID)
+		if err != nil {
+			log.Err(err).Str("message_id", string(msg.ID)).Msg("Failed to check for existing message")
+			return false
+		}
+		return existing != nil
+	})
 	if len(resp.Messages) == 0 {
 		log.Warn().Msg("No messages left to backfill after cutting off old messages")
 		if resp.CompleteCallback != nil {
@@ -88,15 +98,8 @@ func (portal *Portal) doForwardBackfill(ctx context.Context, source *UserLogin, 
 		return
 	}
 	// Catch-up messages are new to Matrix however they got here, so they rejoin like live ones.
-	// Cutoff only compares timestamps within this portal, so a message bridged elsewhere can still be here.
 	if portal.Bridge.Config.RejoinOnEvents.Contains(bridgeconfig.RejoinEventMessage) &&
-		slices.ContainsFunc(resp.Messages, func(msg *BackfillMessage) bool {
-			if msg.Sender.IsFromMe {
-				return false
-			}
-			existing, err := portal.Bridge.DB.Message.GetFirstPartByID(ctx, portal.Receiver, msg.ID)
-			return err == nil && existing == nil
-		}) {
+		slices.ContainsFunc(resp.Messages, func(msg *BackfillMessage) bool { return !msg.Sender.IsFromMe }) {
 		source.MarkInPortal(contextWithRemoteEventRejoin(ctx, true), portal)
 	}
 	err = portal.sendBackfill(ctx, source, resp.Messages, true, resp.MarkRead, false, resp.CompleteCallback)
